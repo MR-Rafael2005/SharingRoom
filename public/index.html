@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reunião</title>
+  <link rel="stylesheet" href="index.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">SALA ONLINE</p>
+        <h1>Reunião</h1>
+      </div>
+      <span class="connection-dot" aria-label="Status da conexão"></span>
+    </header>
+
+    <section id="lobbyView" class="view-card">
+      <div class="hero">
+        <div class="hero-icon">◉</div>
+        <h2>Entre na conversa</h2>
+        <p>Crie uma sala ou use um código para participar de uma reunião.</p>
+      </div>
+
+      <div class="lobby-actions">
+        <label for="usernameInput">Seu nome</label>
+        <input
+          id="usernameInput"
+          type="text"
+          placeholder="Como as pessoas verão você"
+          maxlength="30"
+          autocomplete="name"
+        />
+
+        <button id="createRoomButton" class="button button-primary">
+          Criar reunião
+        </button>
+
+        <div class="divider"><span>ou entre com um código</span></div>
+
+        <label for="roomInput">Código da sala</label>
+        <div class="join-row">
+          <input
+            id="roomInput"
+            type="text"
+            placeholder="Ex.: A1B2C3"
+            maxlength="6"
+            autocomplete="off"
+          />
+          <button id="joinRoomButton" class="button button-secondary">
+            Entrar
+          </button>
+        </div>
+      </div>
+
+      <p id="lobbyStatus" class="status">Conectando...</p>
+    </section>
+
+    <section id="meetingView" class="meeting-view" hidden>
+      <header class="meeting-header">
+        <div>
+          <p class="eyebrow">VOCÊ ESTÁ EM UMA REUNIÃO</p>
+          <h2>Sala <span id="roomCode">-</span></h2>
+        </div>
+        <button id="leaveRoomButton" class="button button-danger">
+          Sair da reunião
+        </button>
+      </header>
+
+      <p id="status" class="status">Preparando reunião...</p>
+
+      <div class="meeting-toolbar">
+        <button id="muteButton" class="button button-secondary">
+          Mutar microfone
+        </button>
+        <button id="shareScreenButton" class="button button-primary">
+          Compartilhar tela e áudio do PC
+        </button>
+      </div>
+
+      <div class="participants-heading">
+        <h2>Participantes</h2>
+        <span class="live-badge">AO VIVO</span>
+      </div>
+      <ul id="participantsList" class="participants-list"></ul>
+
+      <h2 class="shared-screens-heading">Telas compartilhadas</h2>
+      <p id="noScreenMessage" class="empty-state">
+        Nenhuma tela está sendo compartilhada.
+      </p>
+      <div id="remoteVideos" class="participants-grid" hidden></div>
+    </section>
+  </main>
+
+  <script src="index.js"></script>
+</body>
+</html>
