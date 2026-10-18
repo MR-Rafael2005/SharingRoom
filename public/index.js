@@ -1,6 +1,8 @@
+// WebRTC and WebSocket client for screen sharing and audio conferencing
 const socketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
 const socket = new WebSocket(`${socketProtocol}://${window.location.host}`);
 
+// DOM elements for the lobby and meeting views
 const lobbyView = document.getElementById("lobbyView");
 const meetingView = document.getElementById("meetingView");
 const createRoomButton = document.getElementById("createRoomButton");
@@ -17,18 +19,33 @@ const participantsList = document.getElementById("participantsList");
 const lobbyStatusElement = document.getElementById("lobbyStatus");
 const statusElement = document.getElementById("status");
 
+// RTC configuration and state management
 const rtcConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
+// Peer connection and media state management
 const peerConnections = new Map();
 const pendingCandidates = new Map();
 const remoteMedia = new Map();
 const peerNames = new Map();
 const pendingNegotiations = new Set();
+const peerVolumes = new Map();
 
+function applyVolume(peerId) {
+  const media = remoteMedia.get(peerId);
+  const volume = peerVolumes.get(peerId) ?? 1;
+
+  if (media?.audio) media.audio.volume = volume;
+  if (media?.video) media.video.volume = volume;
+}
+
+// Local media and room state management
 let localStream = null;
 let localAudioTrack = null;
+let audioContext = null;
+let rawMicStream = null;
+let noiseLevel = 0;
 let currentRoomCode = null;
 let participantId = null;
 let activeScreenStream = null;
@@ -74,6 +91,25 @@ function renderParticipants() {
     const item = document.createElement("li");
 
     item.textContent = id === participantId ? `${username} (você)` : username;
+
+    if (id !== participantId) {
+      const slider = document.createElement("input");
+
+      slider.type = "range";
+      slider.min = "0";
+      slider.max = "1";
+      slider.step = "0.05";
+      slider.value = peerVolumes.get(id) ?? 1;
+      slider.className = "volume-slider";
+      slider.title = `Volume de ${username}`;
+      slider.setAttribute("aria-label", `Volume de ${username}`);
+      slider.addEventListener("input", () => {
+        peerVolumes.set(id, Number(slider.value));
+        applyVolume(id);
+      });
+      item.appendChild(slider);
+    }
+
     participantsList.appendChild(item);
   }
 }
@@ -95,7 +131,43 @@ async function prepareMicrophone() {
     return;
   }
 
-  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const rawStream = await navigator.mediaDevices.getUserMedia({
+    audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+  });
+
+  audioContext = new AudioContext();
+  rawMicStream = rawStream;
+
+  const source = audioContext.createMediaStreamSource(rawStream);
+  const destination = audioContext.createMediaStreamDestination();
+  const processor = audioContext.createScriptProcessor(1024, 1, 1);
+  let gain = 1;
+
+  // Noise gate: quiet audio below the slider-defined threshold is faded out.
+  processor.onaudioprocess = (event) => {
+    const input = event.inputBuffer.getChannelData(0);
+    const output = event.outputBuffer.getChannelData(0);
+    let sum = 0;
+
+    for (let i = 0; i < input.length; i++) {
+      sum += input[i] * input[i];
+    }
+
+    const rms = Math.sqrt(sum / input.length);
+    const threshold = noiseLevel * 0.04;
+    const target = noiseLevel === 0 || rms > threshold ? 1 : 0;
+    const rate = target > gain ? 0.2 : 0.02;
+
+    for (let i = 0; i < input.length; i++) {
+      gain += (target - gain) * rate;
+      output[i] = input[i] * gain;
+    }
+  };
+
+  source.connect(processor);
+  processor.connect(destination);
+
+  localStream = destination.stream;
   localAudioTrack = localStream.getAudioTracks()[0];
 }
 
@@ -134,6 +206,7 @@ function showRemoteVideo(peerId, stream) {
 
   media.card = card;
   media.video = video;
+  applyVolume(peerId);
   updateSharedScreenView();
 }
 
@@ -180,6 +253,7 @@ function createPeerConnection(peerId) {
       document.body.appendChild(audio);
       media = { audio, card: null, video: null };
       remoteMedia.set(peerId, media);
+      applyVolume(peerId);
     }
 
     if (event.track.kind !== "video") {
@@ -436,6 +510,10 @@ function resetMeeting() {
     }
   }
 
+  rawMicStream?.getTracks().forEach((track) => track.stop());
+  audioContext?.close();
+  rawMicStream = null;
+  audioContext = null;
   localStream = null;
   localAudioTrack = null;
   activeScreenStream = null;
@@ -444,6 +522,7 @@ function resetMeeting() {
   roomInput.value = "";
   remoteVideos.replaceChildren();
   peerNames.clear();
+  peerVolumes.clear();
   renderParticipants();
   updateSharedScreenView();
   muteButton.textContent = "Mutar microfone";
@@ -474,6 +553,7 @@ async function enterRoom(messageType, roomCode, username) {
   setStatus("Entrando na reunião...");
 }
 
+//#region Event Listeners for UI Buttons
 createRoomButton.addEventListener("click", async () => {
   const username = getUsername();
 
@@ -513,6 +593,11 @@ joinRoomButton.addEventListener("click", async () => {
   await enterRoom("join-room", roomCode, username);
 });
 
+const noiseSlider = document.getElementById("noiseSlider");
+noiseSlider.addEventListener("input", () => {
+  noiseLevel = Number(noiseSlider.value);
+});
+
 muteButton.addEventListener("click", () => {
   if (!localAudioTrack) {
     return;
@@ -542,7 +627,9 @@ shareScreenButton.addEventListener("click", async () => {
     console.error(error);
   }
 });
+//#endregion
 
+//#region WebSocket Event Listeners
 socket.addEventListener("message", async (event) => {
   const message = JSON.parse(event.data);
 
@@ -589,6 +676,7 @@ socket.addEventListener("message", async (event) => {
   if (message.type === "room-closed") {
     resetMeeting();
     setStatus(message.message);
+    alert(message.message || "O criador saiu e a reunião foi encerrada.");
     return;
   }
 
@@ -604,3 +692,4 @@ socket.addEventListener("open", () => {
 socket.addEventListener("close", () => {
   setStatus("Conexão com o servidor encerrada.");
 });
+//#endregion
